@@ -4,12 +4,13 @@
 #       build-docker.yml and change the release channel from :latest to :testing
 
 # Builder image
-FROM clojure:temurin-11-tools-deps-1.11.1.1208-bullseye-slim as builder
+FROM clojure:temurin-11-tools-deps-1.11.1.1413-bullseye-slim AS builder
 
 ARG DEBIAN_FRONTEND=noninteractive
 
 # Install reqs
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    rsync \
     curl \
     ca-certificates \
     apt-transport-https \
@@ -28,14 +29,17 @@ RUN curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | gpg --dearmor | \
 WORKDIR /data
 
 # build Logseq static resources
-RUN git clone -b master https://github.com/logseq/logseq.git .
+RUN git clone -b feat/db https://github.com/logseq/logseq.git .
 
-RUN yarn config set network-timeout 240000 -g && yarn install
+RUN yarn config set network-timeout 240000 -g && yarn install --frozen-lockfile
 
-RUN  yarn release 
+RUN yarn gulp:build && \
+    clojure -M:cljs release app  --config-merge '{:compiler-options {:source-map-include-sources-content false :source-map-detail-level :symbols}}' && \
+    rsync -avz --exclude node_modules --exclude android --exclude ios ./static/ ./public/static/ && \
+    ls -lR ./public
 
 # Web App Runner image
-FROM nginx:1.24.0-alpine3.17
+FROM nginx:1.27.0-alpine3.19
 
-COPY --from=builder /data/static /usr/share/nginx/html
+COPY --from=builder /data/public/static/ /usr/share/nginx/html
 
